@@ -97,6 +97,9 @@ public KafkaTemplate<?, ?> kafkaTemplate(ProducerFactory<Object, Object> kafkaPr
     return kafkaTemplate;
 }
 ```
+
+
+
 ###问题
 
 1、kafka使用场景？
@@ -171,7 +174,284 @@ Reactive Streams:
 
 整合：
 
-引入maven
+###引入maven
+
+```xml
+<dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-starter-sleuth</artifactId>
+</dependency>
+```
+
+### 日志发生的变化
+
+当应用ClassPath存在org.springframework.cloud:spring-cloud-starter-sleuth时候，日志会发生调整
+
+出现这个东西：traceId
+
+[sleuth-server,1fe5f178773b7b5d,1fe5f178773b7b5d,false]
+
+它会调整当前日志系统(slf4j)的`MDC`(Mapped Diagnostic Contexts)
+
+org.springframework.cloud.sleuth.log.Slf4jSpanLogger
+
+```java
+public void logContinuedSpan(Span span) {
+    MDC.put(Span.SPAN_ID_NAME, Span.idToHex(span.getSpanId()));
+    MDC.put(Span.TRACE_ID_NAME, span.traceIdString());
+    MDC.put(Span.SPAN_EXPORT_NAME, String.valueOf(span.isExportable()));
+    setParentIdIfPresent(span);
+    log("Continued span: {}", span);
+}
+```
+
+整体流程
+
+sleuth会自动装配一个名为TraceFliter的组件（在Spring WebMVC DispatcherServlet之前），它会增加一些slf4j MDC
 
 
 
+
+
+### Zipkin整合
+
+####创建Spring-Cloud-Zipkin服务器（模块名称）
+
+start.spring.io:zipkin client
+
+####maven导入
+
+```xml
+<!--Zipkin 服务器依赖-->
+<dependency>
+    <groupId>io.zipkin.java</groupId>
+    <artifactId>zipkin-server</artifactId>
+</dependency>
+<!--Zipkin 服务器UI控制器-->
+<dependency>
+    <groupId>io.zipkin.java</groupId>
+    <artifactId>zipkin-autoconfigure-ui</artifactId>
+    <!--<scope>runtime</scope>-->
+</dependency>
+```
+
+#### 添加配置
+
+```properties
+##服务名称
+spring.application.name=zipkin-server
+##服务端口
+server.port=23456
+##安全管理关闭
+management.security.enabled=false
+```
+
+##### 激活@EnableZipkinServer
+
+```java
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import zipkin.server.EnableZipkinServer;
+
+@SpringBootApplication
+@EnableZipkinServer//不建议使用，咋做？？？？
+public class ZipkinServerApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(ZipkinServerApplication.class,args);
+    }
+}
+```
+
+
+
+### HTTP收集（HTTP调用）
+
+###简单整合Spring-Cloud-Sleuth(模块名称)
+
+####maven导入
+
+
+
+
+
+```xml
+<dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-starter-sleuth</artifactId>
+</dependency>
+<!--新添加依赖-->
+<!--Zipkin 客户端依赖-->
+<dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-starter-zipkin</artifactId>
+</dependency>
+```
+
+#### 添加zipkin配置
+
+```properties
+##服务名称
+spring.application.name=sleuth-server
+##服务端口
+server.port=8080
+
+##新增配置##
+##Zipkin服务器配置
+zipkin.server.host=localhost
+zipkin.server.port=23456
+###增加 Zipkin服务器地址
+spring.zipkin.base-url=http://${zipkin.server.host}:${zipkin.server.port}/
+```
+
+####启动zipkinServer,sleuthServer两个服务
+
+测试，打开zipkin服务端进行监控:
+
+http://localhost:23456/zipkin/
+
+访问sleuth模块:
+
+
+
+### 整合全部服务（HTTP方式）spring-cloud-sleuth-demo 模块
+
+####程序调用链：
+
+sleuth-server  -->	zuul-server  -->  person-consumer  -->  person-service
+
+#####启动服务顺序：
+
+Zipkin Server     	 端口：23456  启动查看 http://localhost:23456/zipkin/
+
+Eureka Server        端口：8761    启动查看 http://localhost:8761/
+
+Config Server    	 端口：10000  启动查看 http://localhost:10000/zuul/prod  or /zuul-prod.properties
+
+Person Service 	 端口：7070    启动查看 http://localhost:7070/person/find/all
+
+Person Consumer 端口：8080    启动查看 http://localhost:8080/person/find/all
+
+Zuul Server		 端口：9090    启动查看 http://localhost:9090/person-zoo/person/find/all
+
+Sleuth Server         端口：6060   启动查看 http://localhost:6060/hello
+
+http://localhost:6060/to/zuul/person-zoo/person/find/all
+
+要多模块打印日志，才能到zipkin中
+
+
+
+#### 改造Sleuth Server
+
+####连接eureka服务器
+
+##### maven导入，增加eureka依赖
+
+```xml
+<dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
+</dependency>
+```
+
+##### 增加发现eureka server配置(最下面一行)
+
+```properties
+##服务名称
+spring.application.name=sleuth-server
+##服务端口
+server.port=6060
+##Zipkin服务器配置
+zipkin.server.host=localhost
+zipkin.server.port=23456
+###增加 Zipkin服务器地址
+spring.zipkin.base-url=http://${zipkin.server.host}:${zipkin.server.port}/
+
+##Eureka Server服务 Url 用于客户端注册
+eureka.client.service-url.defaultZone=http://localhost:8761/eureka
+```
+
+#####激活eureka客户端
+
+```java
+@SpringBootApplication
+@EnableDiscoveryClient
+public class SleuthServerApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(SleuthServerApplication.class,args);
+    }
+
+    //转发使用，新增的，不要在bean中声明bean,循环依赖。。。
+    @LoadBalanced
+    @Bean
+    public RestTemplate restTemplate(){
+        return new RestTemplate();
+    }
+}
+```
+
+##### 增加转发的Controller
+
+```java
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cloud.client.loadbalancer.LoadBalanced;
+import org.springframework.context.annotation.Bean;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestTemplate;
+
+@RestController
+public class DemoController {
+    //不必使用static
+    protected final Logger logger = LoggerFactory.getLogger(getClass());
+
+    private final RestTemplate restTemplate;
+
+    @Autowired
+    public DemoController(RestTemplate restTemplate) {
+        this.restTemplate = restTemplate;
+    }
+
+    // ""和"/"是有区别的 /seluth/index
+    @GetMapping("/hello")
+    public String index(){
+        String returnValue = "Hello World";
+        logger.info("{} index():{}",getClass().getSimpleName(),returnValue);
+       return returnValue;
+    }
+
+
+    /**
+     * 完整的调用链路
+     * sleuth-server
+     *    -->zuul-server
+     *        -->person-consumer
+     *            -->person-service
+     * @return
+     */
+    @GetMapping("/to/zuul/person-zoo/person/find/all")
+    public Object toZuul(){
+        logger.info("/to/zuul/person-zoo/person/find/all");
+        //zuul-server是应用名称
+        String url = "http://zuul-server/person/find/all";
+        return restTemplate.getForObject(url,Object.class);
+    }
+}
+
+```
+
+重新启动：sleuth-server ,测试：
+
+访问zuul添加参数
+
+curl -XPOST http://localhost:9090/person-zoo/person/save  -H "content-type:application/json;charset=UTF-8" -d '{"name":"fankun"}'
+
+访问sleuth-server,获取添加的参数
+
+http://localhost:6060/to/zuul/person-zoo/person/find/all
+
+
+
+#####在zuul-server,person-consumer,person-service中增加zipkin-client

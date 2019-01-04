@@ -11,6 +11,8 @@
         <module>personServerConsumer</module>
         <module>configServer</module>
         <module>streamKafka</module>
+        <module>sleuthServer</module>
+        <module>zipkinServer</module>
     </modules>
 
 	<parent>
