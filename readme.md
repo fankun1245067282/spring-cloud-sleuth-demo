@@ -390,7 +390,7 @@ public class SleuthServerApplication {
 }
 ```
 
-##### 增加转发的Controller
+##### 增加转发的Controller，转发到zuul-server
 
 ```java
 import org.slf4j.Logger;
@@ -454,4 +454,107 @@ http://localhost:6060/to/zuul/person-zoo/person/find/all
 
 
 
-#####在zuul-server,person-consumer,person-service中增加zipkin-client
+####在zuul-server上报到zipkin服务
+
+#####maven导入
+
+```xml
+<!--Zipkin 客户端依赖，使用Zipkin时才增加-->
+<dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-starter-zipkin</artifactId>
+</dependency>
+```
+
+##### 增加配置
+
+```properties
+##Zipkin服务器配置
+zipkin.server.host=localhost
+zipkin.server.port=23456
+###增加 Zipkin服务器地址
+spring.zipkin.base-url=http://${zipkin.server.host}:${zipkin.server.port}/
+```
+
+不用激活，直接就可以使用
+
+访问后，zipkin出现轨迹。
+
+####在person-consumer,person-service上报到zipkin服务
+
+##### maven导入
+
+```xml
+<!--Zipkin 客户端依赖，使用Zipkin时才增加-->
+<dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-starter-zipkin</artifactId>
+</dependency>
+```
+
+##### 增加配置
+
+```properties
+##Zipkin服务器配置
+zipkin.server.host=localhost
+zipkin.server.port=23456
+###增加 Zipkin服务器地址
+spring.zipkin.base-url=http://${zipkin.server.host}:${zipkin.server.port}/
+```
+
+不用激活，直接就可以使用
+
+
+
+##### person-api中增加拦截器，打印日志
+
+```java
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.web.servlet.HandlerInterceptor;
+import org.springframework.web.servlet.ModelAndView;
+import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurerAdapter;
+
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+
+/**
+ * 增加通用日志
+ */
+public class WebConfig extends WebMvcConfigurerAdapter {
+    private final Logger logger = LoggerFactory.getLogger(getClass());
+    @Override
+    public void addInterceptors(InterceptorRegistry registry) {
+
+        registry.addInterceptor(new HandlerInterceptor() {
+            @Override
+            public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
+                return false;
+            }
+
+            @Override
+            public void postHandle(HttpServletRequest request, HttpServletResponse response, Object handler, ModelAndView modelAndView) throws Exception {
+                logger.info("request URI:{}",request.getRequestURI());
+            }
+
+            @Override
+            public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) throws Exception {
+
+            }
+        });
+    }
+}
+
+```
+
+在person-consumer,person-service启动类上添加
+
+```java
+@Import(WebConfig.class)
+```
+
+重新启动
+
+[sleuth-server,cafebeab9ced1142,cafebeab9ced1142,false]
